@@ -163,9 +163,10 @@ func (api *FilterAPI) NewPendingTransactionFilter(fullTx *bool) rpc.ID {
 }
 
 // NewPendingTransactions creates a subscription that is triggered each time a
-// transaction enters the transaction pool. If fullTx is true the full tx is
-// sent to the client, otherwise the hash is sent.
-func (api *FilterAPI) NewPendingTransactions(ctx context.Context, fullTx *bool) (*rpc.Subscription, error) {
+// transaction enters the transaction pool. If rawTx is true, sends RLP-hex ("0x...") payloads.
+// Else if fullTx is true, sends full JSON tx objects.
+// Otherwise the hash is sent.
+func (api *FilterAPI) NewPendingTransactions(ctx context.Context, fullTx *bool, rawTx *bool) (*rpc.Subscription, error) {
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
@@ -187,12 +188,20 @@ func (api *FilterAPI) NewPendingTransactions(ctx context.Context, fullTx *bool) 
 				// TODO(rjl493456442) Send a batch of tx hashes in one notification
 				latest := api.sys.backend.CurrentHeader()
 				for _, tx := range txs {
+					// rawTx has a priority so that it can be called: [null, true]
+					if rawTx != nil && *rawTx {
+						if data, err := tx.MarshalBinary(); err == nil {
+							// hexutil.Bytes -> "0x..." JSON-string
+							notifier.Notify(rpcSub.ID, hexutil.Bytes(data))
+						}
+						continue
+					}
 					if fullTx != nil && *fullTx {
 						rpcTx := ethapi.NewRPCPendingTransaction(tx, latest, chainConfig)
 						notifier.Notify(rpcSub.ID, rpcTx)
-					} else {
-						notifier.Notify(rpcSub.ID, tx.Hash())
+						continue
 					}
+					notifier.Notify(rpcSub.ID, tx.Hash())
 				}
 			case <-rpcSub.Err():
 				return
