@@ -48,7 +48,7 @@ var (
 
 const (
 	// The maximum number of addresses allowed in a filter criteria
-	maxAddresses = 1000
+	maxAddresses = 1500
 	// The maximum number of topic criteria allowed, vm.LOG4 - vm.LOG0
 	maxTopics = 4
 	// The maximum number of allowed topics within a topic criteria
