@@ -418,7 +418,7 @@ func (f *Filter) rangeLogs(ctx context.Context, firstBlock, lastBlock uint64) ([
 func (f *Filter) indexedLogs(ctx context.Context, mb filtermaps.MatcherBackend, begin, end uint64) ([]*types.Log, error) {
 	start := time.Now()
 	potentialMatches, err := filtermaps.GetPotentialMatches(ctx, mb, begin, end, f.addresses, f.topics)
-	matches := filterLogs(potentialMatches, nil, nil, f.addresses, f.topics)
+	matches := filterLogs(potentialMatches, nil, nil, f.addresses, f.topics, nil)
 	log.Trace("Performed indexed log search", "begin", begin, "end", end, "true matches", len(matches), "false positives", len(potentialMatches)-len(matches), "elapsed", common.PrettyDuration(time.Since(start)))
 	return matches, err
 }
@@ -474,7 +474,7 @@ func (f *Filter) checkMatches(ctx context.Context, header *types.Header) ([]*typ
 	if err != nil {
 		return nil, err
 	}
-	logs := filterLogs(cached.logs, nil, nil, f.addresses, f.topics)
+	logs := filterLogs(cached.logs, nil, nil, f.addresses, f.topics, nil)
 	if len(logs) == 0 {
 		return nil, nil
 	}
@@ -497,7 +497,7 @@ func (f *Filter) checkMatches(ctx context.Context, header *types.Header) ([]*typ
 }
 
 // filterLogs creates a slice of logs matching the given criteria.
-func filterLogs(logs []*types.Log, fromBlock, toBlock *big.Int, addresses []common.Address, topics [][]common.Hash) []*types.Log {
+func filterLogs(logs []*types.Log, fromBlock, toBlock *big.Int, addresses []common.Address, topics [][]common.Hash, addressTopics map[common.Address][][]common.Hash) []*types.Log {
 	var check = func(log *types.Log) bool {
 		if fromBlock != nil && fromBlock.Int64() >= 0 && fromBlock.Uint64() > log.BlockNumber {
 			return false
@@ -508,11 +508,18 @@ func filterLogs(logs []*types.Log, fromBlock, toBlock *big.Int, addresses []comm
 		if len(addresses) > 0 && !slices.Contains(addresses, log.Address) {
 			return false
 		}
+		// Select effective topic rules: per-address override takes priority.
+		effectiveTopics := topics
+		if addressTopics != nil {
+			if perTopics, ok := addressTopics[log.Address]; ok {
+				effectiveTopics = perTopics
+			}
+		}
 		// If the to filtered topics is greater than the amount of topics in logs, skip.
-		if len(topics) > len(log.Topics) {
+		if len(effectiveTopics) > len(log.Topics) {
 			return false
 		}
-		for i, sub := range topics {
+		for i, sub := range effectiveTopics {
 			if len(sub) == 0 {
 				continue // empty rule set == wildcard
 			}
