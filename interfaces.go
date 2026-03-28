@@ -191,6 +191,18 @@ type FilterQuery struct {
 	// {{A}, {B}}         matches topic A in first position AND B in second position
 	// {{A, B}, {C, D}}   matches topic (A OR B) in first position AND (C OR D) in second position
 	Topics [][]common.Hash
+
+	// AddressTopics optionally overrides Topics for specific contract addresses.
+	// When a log is emitted by an address present in this map, the associated
+	// topic rules are used instead of the global Topics field above.
+	// Addresses absent from this map are always matched against global Topics.
+	//
+	// This allows a single subscription to enforce different topic constraints
+	// per address — for example, filtering V4 PoolManager logs by PoolId
+	// (topics[1]) while leaving V2/V3 pair logs unconstrained on topics[1].
+	//
+	// nil means disabled — behaviour is identical to a query without this field.
+	AddressTopics map[common.Address][][]common.Hash
 }
 
 // LogFilterer provides access to contract log events using a one-off query or continuous
