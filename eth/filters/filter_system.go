@@ -25,6 +25,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"math/big"
+
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/lru"
@@ -76,6 +78,13 @@ type Backend interface {
 
 	CurrentView() *filtermaps.ChainView
 	NewMatcherBackend() filtermaps.MatcherBackend
+}
+
+// ContractCaller is an optional interface implemented by backends that support
+// in-process eth_call. Used by DexLogs to enrich oracle events without a
+// network round-trip.
+type ContractCaller interface {
+	CallContract(ctx context.Context, call ethereum.CallMsg, blockNumber *big.Int) ([]byte, error)
 }
 
 // FilterSystem holds resources shared by all filters.
@@ -492,7 +501,7 @@ func (es *EventSystem) handleLogs(filters filterIndex, ev []*types.Log) {
 		return
 	}
 	for _, f := range filters[LogsSubscription] {
-		matchedLogs := filterLogs(ev, f.logsCrit.FromBlock, f.logsCrit.ToBlock, f.logsCrit.Addresses, f.logsCrit.Topics)
+		matchedLogs := filterLogs(ev, f.logsCrit.FromBlock, f.logsCrit.ToBlock, f.logsCrit.Addresses, f.logsCrit.Topics, f.logsCrit.AddressTopics)
 		if len(matchedLogs) > 0 {
 			f.logs <- matchedLogs
 		}

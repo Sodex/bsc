@@ -420,6 +420,72 @@ func (api *FilterAPI) Logs(ctx context.Context, crit FilterCriteria) (*rpc.Subsc
 	return rpcSub, nil
 }
 
+
+// BlockBoundedLogs creates a subscription identical to eth_subscribe("logs"),
+// but after emitting all logs of a block, it emits a synthetic "blockBoundary" event.
+// This allows clients to differentiate between logs of separate blocks.
+func (api *FilterAPI) BlockBoundedLogs(ctx context.Context, crit FilterCriteria) (*rpc.Subscription, error) {
+	notifier, supported := rpc.NotifierFromContext(ctx)
+	if !supported {
+		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
+	}
+
+	rpcSub := notifier.CreateSubscription()
+	matchedLogs := make(chan []*types.Log)
+
+	logsSub, err := api.events.SubscribeLogs(ethereum.FilterQuery(crit), matchedLogs)
+	if err != nil {
+		return nil, err
+	}
+
+	type notification struct {
+        Type        string          `json:"type"`                   // "log" | "blockBoundary"
+        Log         *types.Log      `json:"log,omitempty"`          // only for Type="log"
+        BlockNumber hexutil.Uint64  `json:"blockNumber,omitempty"`  // only for boundary
+        BlockHash   *common.Hash     `json:"blockHash,omitempty"`
+        LogsCount   int             `json:"logsCount,omitempty"`
+    }
+
+	gopool.Submit(func() {
+		defer logsSub.Unsubscribe()
+
+		for {
+			select {
+			case logs := <-matchedLogs:
+				if len(logs) == 0 {
+					continue
+				}
+
+				// Stream all logs individually
+				for _, log := range logs {
+					notif := notification{
+						Type: "log",
+						Log:  log,
+					}
+					notifier.Notify(rpcSub.ID, notif)
+				}
+
+				// Block boundary event
+				first := logs[0] // All logs belong to same block
+				bh := first.BlockHash
+
+				boundary := notification{
+					Type: 		 "blockBoundary",
+					BlockNumber: hexutil.Uint64(first.BlockNumber),
+					BlockHash: 	 &bh,
+					LogsCount: 	 len(logs),
+				}
+				notifier.Notify(rpcSub.ID, boundary)
+			
+			case <-rpcSub.Err():
+				return
+			}
+		}
+	})
+
+	return rpcSub, nil
+}
+
 // TransactionReceiptsFilter defines criteria for transaction receipts subscription.
 // If TransactionHashes is nil or empty, receipts for all transactions included in new blocks will be delivered.
 // Otherwise, only receipts for the specified transactions will be delivered.
