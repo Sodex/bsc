@@ -25,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core"
@@ -51,6 +52,18 @@ type testBackend struct {
 	voteFeed            event.Feed
 	pendingBlock        *types.Block
 	pendingReceipts     types.Receipts
+	// callContractFn — мок eth_call для dexLogs obric-оракула (ContractCaller). nil →
+	// вызов возвращает ошибку (обогащение не срабатывает, событие уходит обычным log,
+	// как без ContractCaller). Тесты oracle golden-эмиттера ставят своё значение.
+	callContractFn func(ctx context.Context, call ethereum.CallMsg, blockNumber *big.Int) ([]byte, error)
+}
+
+// CallContract реализует ContractCaller (filter_system.go) — нужен dexLogs obric-оракулу.
+func (b *testBackend) CallContract(ctx context.Context, call ethereum.CallMsg, blockNumber *big.Int) ([]byte, error) {
+	if b.callContractFn != nil {
+		return b.callContractFn(ctx, call, blockNumber)
+	}
+	return nil, errors.New("testBackend: CallContract not configured")
 }
 
 func (b *testBackend) ChainConfig() *params.ChainConfig {
